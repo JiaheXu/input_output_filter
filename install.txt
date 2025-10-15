@@ -1,0 +1,1 @@
+pip3 install rapidfuzz pypinin -i https://pypi.tuna.tsinghua.edu.cn/simple

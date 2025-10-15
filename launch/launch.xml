@@ -1,0 +1,9 @@
+<launch>
+  
+
+    <node pkg="input_filter" exec="input_filter" name="input_filter_node" output="screen">
+    </node>
+
+
+</launch>
+
