@@ -15,10 +15,7 @@ class TestPublisher(Node):
         msg = AudioMSG()
         # Example texts with different patterns
         sample_texts = [
-            "大家好，现在时间是12:00",
-            "请在15:30-16:30之间到达",
-            "欢迎来到（测试用例）大唐芙蓉园",
-            "普通一句话测试",
+            "我不太会唱歌，有时候能哼两句。"
         ]
         msg.text = random.choice(sample_texts)
         msg.voice = "zf_xiaoyi"

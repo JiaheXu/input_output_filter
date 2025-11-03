@@ -11,11 +11,11 @@ class UDPSegmentSenderNode(Node):
         super().__init__('udp_segment_sender')
 
         # Declare parameters (with defaults)
-        self.declare_parameter('host', '0.0.0.0')
+        self.declare_parameter('host', '192.168.1.120')
         self.declare_parameter('port', 8888)
         self.declare_parameter('default_voice', 'zf_xiaoyi')
-        self.declare_parameter('default_volume', 2.0)
-        self.declare_parameter('default_speed', 1.0)
+        self.declare_parameter('default_volume', 3.0)
+        self.declare_parameter('default_speed', 0.8)
 
         # Load parameter values
         self.host = self.get_parameter('host').get_parameter_value().string_value
@@ -36,6 +36,19 @@ class UDPSegmentSenderNode(Node):
         )
 
         self.get_logger().info(f"🚀 UDP Segment Sender Node started, sending to {self.host}:{self.port}")
+        self.init()
+
+    def init(self):
+        audio_msg = AudioMSG()
+        audio_msg.text = "语音测试"
+        audio_msg.cmd = "speak"
+        audio_msg.voice = 'zf_xiaoyi'
+        audio_msg.volume = 1.2
+        audio_msg.speed = 0.8
+        
+        self.listener_callback( audio_msg )
+
+        return
 
     def normalize_time(self, text: str) -> str:
         def repl_colon(match):
@@ -46,6 +59,7 @@ class UDPSegmentSenderNode(Node):
 
         text = re.sub(r'(\d{1,2}):(\d{2})', repl_colon, text)
         text = re.sub(r'(\d+点\d*)(?:-)(\d+点\d*)', r'\1至\2', text)
+        text = re.sub(r'-', '', text)   # ✅ remove any remaining '-'
         return text
 
     def remove_parentheses_content(self, text: str) -> str:
@@ -55,17 +69,23 @@ class UDPSegmentSenderNode(Node):
         return cleaned
 
     def listener_callback(self, msg: AudioMSG):
+        print("in callback")
         self.get_logger().info(f"📥 Received msg: {msg.text}")
 
         text = self.normalize_time(self.remove_parentheses_content(msg.text))
+        if(len(text)< 4):
+            return
         self.get_logger().info(f"🧹 Cleaned text: {text}")
-
+        self.get_logger().info(f"AudioMSG type: {msg.cmd}")
+        if(msg.cmd == ""):
+            msg.cmd = 'speak'
         payload = {
-            "cmd": "speak",
+            "cmd": msg.cmd,
             "text": text,
             "voice": msg.voice if msg.voice else self.default_voice,
-            "volume": msg.volume if msg.volume != 0.0 else self.default_volume,
-            "speed": msg.speed if msg.speed != 0.0 else self.default_speed,
+            # "volume": msg.volume if msg.volume > 0.1 else self.default_volume,
+            "volume": 3.0,
+            "speed": msg.speed if msg.speed > 0.2 else self.default_speed,
         }
 
         try:
