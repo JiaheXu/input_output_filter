@@ -1,9 +1,13 @@
 <launch>
   
 
-    <node pkg="input_filter" exec="input_filter" name="input_filter_node" output="screen">
+    <node pkg="input_output_filter" exec="input_filter" name="input_filter_node" output="screen">
     </node>
+
+    <timer period="20.0">
+      <node pkg="intput_output_filter" exec="output_filter" name="output_filter_node" output="screen">
+      </node>
+    </timer>
 
 
 </launch>
-

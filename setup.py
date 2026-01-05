@@ -30,8 +30,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'input_filter = input_output_filter.input_filter:main'
+            'input_filter = input_output_filter.input_filter:main',
+            'output_filter = input_output_filter.output_filter:main'
         ],
     },
 )
-

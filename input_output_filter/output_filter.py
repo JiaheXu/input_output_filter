@@ -14,8 +14,8 @@ class UDPSegmentSenderNode(Node):
         self.declare_parameter('host', '192.168.1.120')
         self.declare_parameter('port', 8888)
         self.declare_parameter('default_voice', 'zf_xiaoyi')
-        self.declare_parameter('default_volume', 3.0)
-        self.declare_parameter('default_speed', 0.8)
+        self.declare_parameter('default_volume', 5.0)
+        self.declare_parameter('default_speed', 0.6)
 
         # Load parameter values
         self.host = self.get_parameter('host').get_parameter_value().string_value
@@ -44,7 +44,7 @@ class UDPSegmentSenderNode(Node):
         audio_msg.cmd = "speak"
         audio_msg.voice = 'zf_xiaoyi'
         audio_msg.volume = 1.2
-        audio_msg.speed = 0.8
+        audio_msg.speed = 1.0
         
         self.listener_callback( audio_msg )
 

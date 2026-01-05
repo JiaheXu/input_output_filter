@@ -22,10 +22,12 @@ from pathlib import Path
 from pino_msgs.msg import AudioMSG   # ✅ custom message
 from math import radians, sin, cos, sqrt, atan2
 from pypinyin import lazy_pinyin
+from std_msgs.msg import String as RosString
 
-close_distance = 30.0
 home_dir = str(Path.home())
 NAV_THRESHOLD = 70  # fuzzy match score threshold
+SILENT_TIME = 90.0
+close_distance = 20.0
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -103,7 +105,8 @@ class CommandMapper(Node):
         self.place_matcher = PlaceMatcher(places_file)
         self.last_audio_time = time.time()
         self.NAV_KEYWORDS = ["导", "航", "路线", "地图", "位置", "坐标", "去","志", "到","至", "道行"]
-        self.WANDER_KEYWORDS = ["随便走", "到处逛逛", "随便逛逛"]
+        self.WANDER_KEYWORDS = ["随便走", "到处逛逛", "随便逛逛", "游览模式", "前进","向前走","往前","前走","往前走"]
+        self.FUNC_PLACE = ["办公区", "肯德基", "茶话弄"]
 
         self.get_logger().info(f"Loaded command map from {config_path}, total commands={len(self.command_map)}")
 
@@ -141,6 +144,19 @@ class CommandMapper(Node):
         self.audio_pub = self.create_publisher(AudioMSG, "audio_cmd", 10)
         self.keypoint_pub = self.create_publisher(Int32, "keypoint", 10)
 
+        # ---- NEW: Current goal publisher ----
+        
+        self.current_goal_pub = self.create_publisher(RosString, "/nav_current_goal", 10)
+
+        # ---- NEW: record data flag ----
+        self.record_data_pub = self.create_publisher(Bool, "/record_data", 10)
+        self.record_data = False   # 默认 False
+
+        # ---- Track current navigation goal ----
+        self.current_goal_name = None
+        self.current_goal_lat = None
+        self.current_goal_lon = None
+
         self.voice = 'zf_xiaoyi'
 
         # Track GPS and visited points
@@ -154,9 +170,15 @@ class CommandMapper(Node):
             self.get_logger().info("⏳ Waiting for llm_service...")
         
         self.create_timer(1.0, self.timer_callback, callback_group=self.timer_group)
-        
+
+    def publish_record_flag(self, flag: bool):
+        msg = Bool()
+        msg.data = flag
+        self.record_data_pub.publish(msg)
+        self.get_logger().info(f"📝 record_data = {flag}")
+
     # ---------- Utility methods ----------
-    def publish_audio(self, text: str, cmd: str = 'speak', voice: str = 'zf_xiaoyi', volume: float = 1.5, speed: float = 0.8):
+    def publish_audio(self, text: str, cmd: str = 'speak', voice: str = 'zf_xiaoyi', volume: float = 3.0, speed: float = 1.0):
         msg = AudioMSG()
         msg.cmd = cmd
         msg.text = text
@@ -203,6 +225,26 @@ class CommandMapper(Node):
         self.current_lat = msg.latitude
         self.current_lon = msg.longitude
         self.check_proximity_and_introduce()
+        if self.current_goal_name is not None:
+            dist = haversine_distance(
+                self.current_lat, self.current_lon,
+                self.current_goal_lat, self.current_goal_lon
+            )
+
+            if dist < close_distance:
+                self.get_logger().info(
+                    f"🎯 Arrived at goal {self.current_goal_name}, dist={dist:.1f}m → Clearing goal."
+                )
+
+                # Clear goal state
+                self.current_goal_name = None
+                self.current_goal_lat = None
+                self.current_goal_lon = None
+
+                # Publish None to UI
+                msg_goal = RosString()
+                msg_goal.data = "None"
+                self.current_goal_pub.publish(msg_goal)
 
     def check_proximity_and_introduce(self):
         if self.current_lat is None or self.current_lon is None:
@@ -212,7 +254,7 @@ class CommandMapper(Node):
             place_name, lat, lon = point["name"], point["lat"], point["lon"]
             dist = haversine_distance(self.current_lat, self.current_lon, lat, lon)
 
-            if dist <= close_distance and place_name not in self.visited_points:
+            if ( dist <= close_distance ) and ( place_name not in self.visited_points) and ( place_name not in self.FUNC_PLACE):
                 self.get_logger().info(f"📍 Near {place_name} ({dist:.1f}m) → introducing")
 
                 self.visited_points.add(place_name)
@@ -243,6 +285,20 @@ class CommandMapper(Node):
 
         self.get_logger().info(f"收到原始输入: {user_cmd}")
 
+        # ---------- Record data voice control ----------
+        if "记录数据" in user_cmd:
+            self.record_data = True
+            self.publish_record_flag(True)
+            self.publish_audio("已开始记录数据")
+            return
+
+        if "停止记录" in user_cmd:
+            self.record_data = False
+            self.publish_record_flag(False)
+            self.publish_audio("已停止记录")
+            return
+
+
         # Motion commands
         is_action = self.recognize_action_command(user_cmd)
         if is_action is not None:
@@ -253,11 +309,25 @@ class CommandMapper(Node):
             return
 
         # Navigation
+        
         if any(k in user_cmd for k in self.NAV_KEYWORDS):
             point, score = self.place_matcher.find_best_match(user_cmd, NAV_THRESHOLD)
             if point:
-                self.get_logger().info(f"🧭 导航请求 → {point['name']} idx={point['idx']} (score={score})")
+                self.get_logger().info(
+                    f"🧭 导航请求 → {point['name']} idx={point['idx']} (score={score})"
+                )
 
+                # ---- NEW: store current goal ----
+                self.current_goal_name = point["name"]
+                self.current_goal_lat = point["lat"]
+                self.current_goal_lon = point["lon"]
+
+                # ---- NEW: publish current goal ----
+                msg_goal = RosString()
+                msg_goal.data = self.current_goal_name
+                self.current_goal_pub.publish(msg_goal)
+
+                # Original navigation publish
                 nav_str = String()
                 nav_str.data = f"NAVIGATE:{point['name']}"
                 self.navigate_pub.publish(nav_str)
@@ -277,12 +347,13 @@ class CommandMapper(Node):
                 motion_msg = Int32()
                 motion_msg.data = 20
                 self.motion_pub.publish(motion_msg)
-                name = point["name"]
-                self.publish_audio(f"好的，正在规划到{name}的路径。")
+
+                self.publish_audio(f"好的，正在规划到{point['name']}的路径。")
                 return
 
             self.publish_audio("抱歉，我没有找到合适路径。")
             return
+
 
         # Wander
         if any(k in user_cmd for k in self.WANDER_KEYWORDS):
@@ -315,7 +386,7 @@ class CommandMapper(Node):
     # -------- Timers -------- #
     def timer_callback(self):
         now = time.time()
-        if(now - self.last_audio_time > 30.0):
+        if(now - self.last_audio_time > SILENT_TIME):
             msg = String()
             msg.data = "随机对话。"
             self.listener_callback(msg)
